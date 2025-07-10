@@ -173,9 +173,7 @@
 
 ;; PUBLIC INTERFACE FUNCTIONS
 
-;;----------------------------------------------------------------------------
 ;; Platform Management Functions
-;;----------------------------------------------------------------------------
 
 ;; Initialize the lending platform
 (define-public (initialize-platform)
@@ -187,9 +185,7 @@
   )
 )
 
-;;----------------------------------------------------------------------------
 ;; Core Lending Operations
-;;----------------------------------------------------------------------------
 
 ;; Deposit Bitcoin collateral into the platform
 (define-public (deposit-collateral (amount uint))
@@ -283,9 +279,7 @@
   )
 )
 
-;;----------------------------------------------------------------------------
 ;; Governance & Administration Functions
-;;----------------------------------------------------------------------------
 
 ;; Update minimum collateralization ratio
 (define-public (update-collateral-ratio (new-ratio uint))
@@ -305,4 +299,44 @@
     (var-set liquidation-threshold new-threshold)
     (ok true)
   )
+)
+
+;; Update asset price feeds
+(define-public (update-price-feed
+    (asset (string-ascii 3))
+    (new-price uint)
+  )
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (is-valid-asset asset) ERR-INVALID-ASSET)
+    (asserts! (is-valid-price new-price) ERR-INVALID-PRICE)
+    (ok (map-set collateral-prices { asset: asset } { price: new-price }))
+  )
+)
+
+;; READ-ONLY QUERY FUNCTIONS
+
+;; Retrieve detailed loan information
+(define-read-only (get-loan-details (loan-id uint))
+  (map-get? loans { loan-id: loan-id })
+)
+
+;; Get all active loans for a specific user
+(define-read-only (get-user-loans (user principal))
+  (map-get? user-loans { user: user })
+)
+
+;; Get comprehensive platform statistics
+(define-read-only (get-platform-stats)
+  {
+    total-btc-locked: (var-get total-btc-locked),
+    total-loans-issued: (var-get total-loans-issued),
+    minimum-collateral-ratio: (var-get minimum-collateral-ratio),
+    liquidation-threshold: (var-get liquidation-threshold),
+  }
+)
+
+;; Get list of supported assets
+(define-read-only (get-valid-assets)
+  VALID-ASSETS
 )
