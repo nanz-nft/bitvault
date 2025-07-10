@@ -157,3 +157,89 @@
 (define-private (is-valid-asset (asset (string-ascii 3)))
   (is-some (index-of VALID-ASSETS asset))
 )
+
+;; Validate price feed data integrity
+(define-private (is-valid-price (price uint))
+  (and
+    (> price u0)
+    (<= price u1000000000000) ;; Reasonable upper bound for asset prices
+  )
+)
+
+;; Utility function for loan ID filtering
+(define-private (not-equal-loan-id (id uint))
+  (not (is-eq id id))
+)
+
+;; PUBLIC INTERFACE FUNCTIONS
+
+;;----------------------------------------------------------------------------
+;; Platform Management Functions
+;;----------------------------------------------------------------------------
+
+;; Initialize the lending platform
+(define-public (initialize-platform)
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (not (var-get platform-initialized)) ERR-ALREADY-INITIALIZED)
+    (var-set platform-initialized true)
+    (ok true)
+  )
+)
+
+;;----------------------------------------------------------------------------
+;; Core Lending Operations
+;;----------------------------------------------------------------------------
+
+;; Deposit Bitcoin collateral into the platform
+(define-public (deposit-collateral (amount uint))
+  (begin
+    (asserts! (var-get platform-initialized) ERR-NOT-INITIALIZED)
+    (asserts! (> amount u0) ERR-INVALID-AMOUNT)
+    (var-set total-btc-locked (+ (var-get total-btc-locked) amount))
+    (ok true)
+  )
+)
+
+;; Request a new collateralized loan
+(define-public (request-loan
+    (collateral uint)
+    (loan-amount uint)
+  )
+  (let (
+      (btc-price (unwrap! (get price (map-get? collateral-prices { asset: "BTC" }))
+        ERR-NOT-INITIALIZED
+      ))
+      (collateral-value (* collateral btc-price))
+      (required-collateral (* loan-amount (var-get minimum-collateral-ratio)))
+      (loan-id (+ (var-get total-loans-issued) u1))
+    )
+    (begin
+      (asserts! (var-get platform-initialized) ERR-NOT-INITIALIZED)
+      (asserts! (>= collateral-value required-collateral)
+        ERR-INSUFFICIENT-COLLATERAL
+      )
+      ;; Create new loan record
+      (map-set loans { loan-id: loan-id } {
+        borrower: tx-sender,
+        collateral-amount: collateral,
+        loan-amount: loan-amount,
+        interest-rate: u5, ;; 5% annual interest rate
+        start-height: stacks-block-height,
+        last-interest-calc: stacks-block-height,
+        status: "active",
+      })
+      ;; Update user loan tracking
+      (match (map-get? user-loans { user: tx-sender })
+        existing-loans (map-set user-loans { user: tx-sender } { active-loans: (unwrap!
+          (as-max-len? (append (get active-loans existing-loans) loan-id) u10)
+          ERR-INVALID-AMOUNT
+        ) }
+        )
+        (map-set user-loans { user: tx-sender } { active-loans: (list loan-id) })
+      )
+      (var-set total-loans-issued (+ (var-get total-loans-issued) u1))
+      (ok loan-id)
+    )
+  )
+)
